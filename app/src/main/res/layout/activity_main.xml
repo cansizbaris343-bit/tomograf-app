@@ -54,11 +54,50 @@
         android:layout_marginTop="8dp"
         android:text="Mikrofon ile Frekans Testi" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/depthToggleButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Kesit Modu: Kapali" />
+
+        <Button
+            android:id="@+id/resetViewButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Gorunumu Sifirla" />
+    </LinearLayout>
+
+    <SeekBar
+        android:id="@+id/depthSlider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="50" />
+
+    <TextView
+        android:id="@+id/infoText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="13sp"
+        android:textColor="#555555"
+        android:minLines="2"
+        android:paddingTop="4dp" />
+
     <FrameLayout
         android:id="@+id/tomographyContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="12dp" />
+        android:layout_marginTop="8dp" />
 
 </LinearLayout>
