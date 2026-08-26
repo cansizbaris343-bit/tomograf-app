@@ -47,6 +47,13 @@
         android:layout_marginTop="8dp"
         android:text="Test Verisiyle Dene (Donanimsiz)" />
 
+    <Button
+        android:id="@+id/micTestButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Mikrofon ile Frekans Testi" />
+
     <FrameLayout
         android:id="@+id/tomographyContainer"
         android:layout_width="match_parent"
