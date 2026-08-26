@@ -1,10 +1,15 @@
 package com.tomograph.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.tomograph.app.R
+import com.tomograph.app.audio.AudioChirpTest
 import com.tomograph.app.network.DaqUdpClient
 import com.tomograph.app.network.SampleFrame
 import com.tomograph.app.tomography.SirtInversion
@@ -26,6 +31,8 @@ class MainActivity : AppCompatActivity() {
         doubleArrayOf(-0.7, 0.4, -0.2)
     )
 
+    private val micPermissionRequestCode = 501
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -35,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         val stopButton = findViewById<Button>(R.id.stopButton)
         val processButton = findViewById<Button>(R.id.processButton)
         val testButton = findViewById<Button>(R.id.testButton)
+        val micTestButton = findViewById<Button>(R.id.micTestButton)
         val container = findViewById<android.widget.FrameLayout>(R.id.tomographyContainer)
 
         tomographyView = Tomography3DView(this)
@@ -44,6 +52,42 @@ class MainActivity : AppCompatActivity() {
         stopButton.setOnClickListener { stopAcquisition() }
         processButton.setOnClickListener { statusText.text = "Gercek veri icin donanim baglantisi gerekiyor." }
         testButton.setOnClickListener { runTestInversion() }
+        micTestButton.setOnClickListener { runMicTest() }
+    }
+
+    private fun runMicTest() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.RECORD_AUDIO), micPermissionRequestCode
+            )
+            statusText.text = "Mikrofon izni isteniyor..."
+            return
+        }
+        startMicTest()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == micPermissionRequestCode) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startMicTest()
+            } else {
+                statusText.text = "Mikrofon izni verilmedi. Test yapilamiyor."
+            }
+        }
+    }
+
+    private fun startMicTest() {
+        statusText.text = "4000-7777 Hz chirp sinyali hazirlaniyor... Telefonu sessiz bir ortamda tutun."
+        AudioChirpTest.runTest { result ->
+            runOnUiThread {
+                statusText.text = result.message
+            }
+        }
     }
 
     private fun startAcquisition() {
@@ -92,7 +136,6 @@ class MainActivity : AppCompatActivity() {
             voxelSizeMeters = 0.12
         )
 
-        // Test amacli, ortada yapay bir "bosluk" (dusuk hiz) bolgesi olustur
         for (iz in 8..12) for (iy in 8..12) for (ix in 8..12) {
             grid.velocities[grid.index(ix, iy, iz)] = 900.0
         }
