@@ -40,6 +40,13 @@
             android:text="Tomografi Olustur" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/testButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Test Verisiyle Dene (Donanimsiz)" />
+
     <FrameLayout
         android:id="@+id/tomographyContainer"
         android:layout_width="match_parent"
