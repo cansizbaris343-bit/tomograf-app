@@ -9,8 +9,6 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import com.tomograph.app.tomography.VoxelGrid
 import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 class Tomography3DView(context: Context) : View(context) {
@@ -22,7 +20,7 @@ class Tomography3DView(context: Context) : View(context) {
     private var zoom = 1.0f
 
     private var depthSliceEnabled = false
-    private var depthSliceFraction = 0.5f // 0..1, derinlik yuzdesi
+    private var depthSliceFraction = 0.5f
 
     private var lastX = 0f
     private var lastY = 0f
@@ -64,6 +62,11 @@ class Tomography3DView(context: Context) : View(context) {
     fun setDepthSliceFraction(fraction: Float) {
         depthSliceFraction = fraction.coerceIn(0f, 1f)
         invalidate()
+    }
+
+    fun getDepthSliceMeters(): Double {
+        val g = grid ?: return 0.0
+        return depthSliceFraction * g.nz * g.voxelSizeMeters
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -134,9 +137,10 @@ class Tomography3DView(context: Context) : View(context) {
         if (closestIdx >= 0 && closestDist < 900f) {
             val v = g.velocities[closestIdx]
             val diff = (v - avg) / avg * 100
-            val depthApprox = (closestIdx / (g.nx * g.ny)) * g.voxelSizeMeters
+            val izApprox = closestIdx / (g.nx * g.ny)
+            val depthMeters = izApprox * g.voxelSizeMeters
             val tip = if (diff < 0) "dusuk yogunluk (bosluk ihtimali)" else "yuksek yogunluk (yogun/sert)"
-            val msg = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nYaklasik derinlik: %.2f m".format(v, diff, tip, depthApprox)
+            val msg = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nDerinlik: %.2f m".format(v, diff, tip, depthMeters)
             selectedInfo = msg
             onVoxelTapped?.invoke(msg)
             invalidate()
@@ -148,11 +152,9 @@ class Tomography3DView(context: Context) : View(context) {
         val py = (iy - g.ny / 2f) * scale
         val pz = (iz - g.nz / 2f) * scale
 
-        // Y ekseni etrafinda dondur
         var rx = px * cos(rotationY) - pz * sin(rotationY)
         var rz = px * sin(rotationY) + pz * cos(rotationY)
 
-        // X ekseni etrafinda dondur (dikey)
         val ry = py * cos(rotationX) - rz * sin(rotationX)
         rz = py * sin(rotationX) + rz * cos(rotationX)
 
@@ -204,10 +206,19 @@ class Tomography3DView(context: Context) : View(context) {
             }
         }
 
+        drawDepthRuler(canvas, g)
+
         paint.color = Color.LTGRAY
-        paint.textSize = 26f
+        paint.textSize = 24f
         canvas.drawText("Mavi = dusuk yogunluk | Turuncu/Kirmizi = yuksek yogunluk", 20f, height - 90f, paint)
         canvas.drawText("Iki parmakla zoom, tek parmakla dondur, dokunarak nokta bilgisi al", 20f, height - 55f, paint)
+
+        if (depthSliceEnabled) {
+            paint.color = Color.CYAN
+            paint.textSize = 28f
+            val depthMeters = depthSliceFraction * g.nz * g.voxelSizeMeters
+            canvas.drawText("Kesit derinligi: %.2f m".format(depthMeters), 20f, height - 125f, paint)
+        }
 
         selectedInfo?.let {
             paint.color = Color.YELLOW
@@ -217,5 +228,33 @@ class Tomography3DView(context: Context) : View(context) {
                 canvas.drawText(line, 20f, 40f + i * 30f, paint)
             }
         }
+    }
+
+    private fun drawDepthRuler(canvas: Canvas, g: VoxelGrid) {
+        val rulerX = width - 70f
+        val rulerTop = 60f
+        val rulerBottom = height - 160f
+        val totalDepthMeters = g.nz * g.voxelSizeMeters
+
+        paint.color = Color.rgb(90, 90, 100)
+        paint.strokeWidth = 3f
+        canvas.drawLine(rulerX, rulerTop, rulerX, rulerBottom, paint)
+
+        val steps = 5
+        paint.textSize = 22f
+        for (i in 0..steps) {
+            val frac = i.toFloat() / steps
+            val y = rulerTop + frac * (rulerBottom - rulerTop)
+            val depthValue = frac * totalDepthMeters
+
+            canvas.drawLine(rulerX - 10f, y, rulerX, y, paint)
+            paint.color = Color.WHITE
+            canvas.drawText("%.1fm".format(depthValue), rulerX - 95f, y + 8f, paint)
+            paint.color = Color.rgb(90, 90, 100)
+        }
+
+        paint.textSize = 20f
+        paint.color = Color.LTGRAY
+        canvas.drawText("Derinlik", rulerX - 100f, rulerTop - 15f, paint)
     }
 }
