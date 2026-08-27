@@ -78,6 +78,10 @@ class MainActivity : AppCompatActivity() {
         depthSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tomographyView.setDepthSliceFraction(progress / 100f)
+                if (depthSliceOn) {
+                    val depthM = tomographyView.getDepthSliceMeters()
+                    infoText.text = "Kesit derinligi: %.2f m".format(depthM)
+                }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
