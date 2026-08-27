@@ -207,6 +207,7 @@ class Tomography3DView(context: Context) : View(context) {
         }
 
         drawDepthRuler(canvas, g)
+        drawWidthRuler(canvas, g)
 
         paint.color = Color.LTGRAY
         paint.textSize = 24f
@@ -231,14 +232,12 @@ class Tomography3DView(context: Context) : View(context) {
     }
 
     private fun drawDepthRuler(canvas: Canvas, g: VoxelGrid) {
-        // Cetvel de nokta bulutuyla ayni "scale" mantigini kullanir, zoom ile birlikte buyur/kuculur.
         val scale = minOf(width, height) / (g.nx.toFloat() * 2.2f) * zoom
         val totalDepthMeters = g.nz * g.voxelSizeMeters
 
-        // Cetvelin ekran uzunlugu, voksel gridinin z-boyutunun ekrandaki gercek boyutuyla eslesir.
         val rulerPixelLength = (g.nz * scale).coerceIn(80f, height * 3f)
         val rulerCenterY = height / 2f
-        val rulerTop = (rulerCenterY - rulerPixelLength / 2f).coerceAtLeast(50f)
+        val rulerTop = (rulerCenterY - rulerPixelLength / 2f).coerceAtLeast(80f)
         val rulerBottom = (rulerCenterY + rulerPixelLength / 2f).coerceAtMost(height - 150f)
         val rulerX = width - 60f
 
@@ -246,9 +245,9 @@ class Tomography3DView(context: Context) : View(context) {
         paint.strokeWidth = 3f
         canvas.drawLine(rulerX, rulerTop, rulerX, rulerBottom, paint)
 
-        val steps = 5
-        val baseTextSize = 22f
-        paint.textSize = (baseTextSize * zoom).coerceIn(14f, 40f)
+        val steps = 7
+        val baseTextSize = 20f
+        paint.textSize = (baseTextSize * zoom).coerceIn(12f, 36f)
         for (i in 0..steps) {
             val frac = i.toFloat() / steps
             val y = rulerTop + frac * (rulerBottom - rulerTop)
@@ -257,11 +256,44 @@ class Tomography3DView(context: Context) : View(context) {
             paint.color = Color.rgb(90, 90, 100)
             canvas.drawLine(rulerX - 10f, y, rulerX, y, paint)
             paint.color = Color.WHITE
-            canvas.drawText("%.1fm".format(depthValue), rulerX - 95f, y + 8f, paint)
+            canvas.drawText("%.1fm".format(depthValue), rulerX - 90f, y + 8f, paint)
         }
 
         paint.textSize = 20f
         paint.color = Color.LTGRAY
         canvas.drawText("Derinlik", rulerX - 100f, (rulerTop - 15f).coerceAtLeast(30f), paint)
+    }
+
+    private fun drawWidthRuler(canvas: Canvas, g: VoxelGrid) {
+        val scale = minOf(width, height) / (g.nx.toFloat() * 2.2f) * zoom
+        val totalWidthMeters = g.nx * g.voxelSizeMeters
+
+        val rulerPixelLength = (g.nx * scale).coerceIn(80f, width * 3f)
+        val rulerCenterX = width / 2f
+        val rulerLeft = (rulerCenterX - rulerPixelLength / 2f).coerceAtLeast(20f)
+        val rulerRight = (rulerCenterX + rulerPixelLength / 2f).coerceAtMost(width - 20f)
+        val rulerY = 40f
+
+        paint.color = Color.rgb(90, 90, 100)
+        paint.strokeWidth = 3f
+        canvas.drawLine(rulerLeft, rulerY, rulerRight, rulerY, paint)
+
+        val steps = 6
+        val baseTextSize = 20f
+        paint.textSize = (baseTextSize * zoom).coerceIn(12f, 36f)
+        for (i in 0..steps) {
+            val frac = i.toFloat() / steps
+            val x = rulerLeft + frac * (rulerRight - rulerLeft)
+            val widthValue = frac * totalWidthMeters
+
+            paint.color = Color.rgb(90, 90, 100)
+            canvas.drawLine(x, rulerY, x, rulerY + 10f, paint)
+            paint.color = Color.WHITE
+            canvas.drawText("%.1fm".format(widthValue), x - 20f, rulerY + 35f, paint)
+        }
+
+        paint.textSize = 20f
+        paint.color = Color.LTGRAY
+        canvas.drawText("Genislik", rulerLeft, rulerY - 15f, paint)
     }
 }
