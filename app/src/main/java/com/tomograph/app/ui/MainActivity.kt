@@ -26,6 +26,9 @@ class MainActivity : AppCompatActivity() {
     private var daqClient: DaqUdpClient? = null
     private var depthSliceOn = false
 
+    // Kazik konumlari (metre, birbirine gore x,y,z). Sahada kaziklari cakarken
+    // gercek olcum yapip bu degerleri guncelleyin - o zaman goruntulenen alan
+    // gercek kazik araligini yansitir.
     private val stakePositions = arrayOf(
         doubleArrayOf(0.0, 0.0, 0.0),
         doubleArrayOf(0.5, 0.3, -0.1),
@@ -163,14 +166,35 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Kazik pozisyonlarinin kapladigi gercek yatay alani hesapla (x ve y min/max)
+        val xs = stakePositions.map { it[0] }
+        val ys = stakePositions.map { it[1] }
+        val spanX = (xs.max() - xs.min()).coerceAtLeast(1.0) + 1.0 // kenar payi
+        val spanY = (ys.max() - ys.min()).coerceAtLeast(1.0) + 1.0
+
+        // Genislik (nx,ny): kazik alanini kapsayacak sekilde, hucre boyutu 0.20m
+        val voxelSize = 0.20
+        val nx = ((spanX / voxelSize).toInt()).coerceAtLeast(10)
+        val ny = ((spanY / voxelSize).toInt()).coerceAtLeast(10)
+
+        // Derinlik (nz): 7 metre sabit, hucre boyutu 0.20m -> 35 hucre
+        val depthMeters = 7.0
+        val nz = (depthMeters / voxelSize).toInt()
+
         val grid = VoxelGrid(
-            nx = 20, ny = 20, nz = 20,
-            originX = -1.2, originY = -1.2, originZ = -1.5,
-            voxelSizeMeters = 0.12
+            nx = nx, ny = ny, nz = nz,
+            originX = -(nx * voxelSize) / 2.0,
+            originY = -(ny * voxelSize) / 2.0,
+            originZ = -depthMeters,
+            voxelSizeMeters = voxelSize
         )
 
-        for (iz in 8..12) for (iy in 8..12) for (ix in 8..12) {
-            grid.velocities[grid.index(ix, iy, iz)] = 900.0
+        // Test amacli, ortada yapay bir "bosluk" (dusuk hiz) bolgesi olustur
+        val cx = nx / 2; val cy = ny / 2; val cz = nz / 2
+        for (iz in (cz - 2)..(cz + 2)) for (iy in (cy - 2)..(cy + 2)) for (ix in (cx - 2)..(cx + 2)) {
+            if (grid.inBounds(ix, iy, iz)) {
+                grid.velocities[grid.index(ix, iy, iz)] = 900.0
+            }
         }
 
         val inversion = SirtInversion(grid, iterations = 60)
@@ -178,7 +202,8 @@ class MainActivity : AppCompatActivity() {
 
         tomographyView.updateGrid(result)
         statusText.text = "Test tomografisi hazir (${rays.size} ray-path, simule veri)."
-        infoText.text = "Noktalara dokunarak detay gorebilir, iki parmakla yakinlastirabilirsiniz."
+        infoText.text = "Goruntulenen alan: %.1fm x %.1fm, derinlik 7.0m. Noktalara dokunarak detay gorebilirsiniz."
+            .format(nx * voxelSize, ny * voxelSize)
     }
 
     private fun distance3D(a: DoubleArray, b: DoubleArray): Double {
