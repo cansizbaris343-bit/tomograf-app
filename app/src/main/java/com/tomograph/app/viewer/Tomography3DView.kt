@@ -231,30 +231,37 @@ class Tomography3DView(context: Context) : View(context) {
     }
 
     private fun drawDepthRuler(canvas: Canvas, g: VoxelGrid) {
-        val rulerX = width - 70f
-        val rulerTop = 60f
-        val rulerBottom = height - 160f
+        // Cetvel de nokta bulutuyla ayni "scale" mantigini kullanir, zoom ile birlikte buyur/kuculur.
+        val scale = minOf(width, height) / (g.nx.toFloat() * 2.2f) * zoom
         val totalDepthMeters = g.nz * g.voxelSizeMeters
+
+        // Cetvelin ekran uzunlugu, voksel gridinin z-boyutunun ekrandaki gercek boyutuyla eslesir.
+        val rulerPixelLength = (g.nz * scale).coerceIn(80f, height * 3f)
+        val rulerCenterY = height / 2f
+        val rulerTop = (rulerCenterY - rulerPixelLength / 2f).coerceAtLeast(50f)
+        val rulerBottom = (rulerCenterY + rulerPixelLength / 2f).coerceAtMost(height - 150f)
+        val rulerX = width - 60f
 
         paint.color = Color.rgb(90, 90, 100)
         paint.strokeWidth = 3f
         canvas.drawLine(rulerX, rulerTop, rulerX, rulerBottom, paint)
 
         val steps = 5
-        paint.textSize = 22f
+        val baseTextSize = 22f
+        paint.textSize = (baseTextSize * zoom).coerceIn(14f, 40f)
         for (i in 0..steps) {
             val frac = i.toFloat() / steps
             val y = rulerTop + frac * (rulerBottom - rulerTop)
             val depthValue = frac * totalDepthMeters
 
+            paint.color = Color.rgb(90, 90, 100)
             canvas.drawLine(rulerX - 10f, y, rulerX, y, paint)
             paint.color = Color.WHITE
             canvas.drawText("%.1fm".format(depthValue), rulerX - 95f, y + 8f, paint)
-            paint.color = Color.rgb(90, 90, 100)
         }
 
         paint.textSize = 20f
         paint.color = Color.LTGRAY
-        canvas.drawText("Derinlik", rulerX - 100f, rulerTop - 15f, paint)
+        canvas.drawText("Derinlik", rulerX - 100f, (rulerTop - 15f).coerceAtLeast(30f), paint)
     }
 }
