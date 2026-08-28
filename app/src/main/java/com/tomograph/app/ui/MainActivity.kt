@@ -39,4 +39,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         statusText = findViewById(R.id.statusText)
-        infoText = findViewById
+        infoText = findViewById(R.id.infoText)
+        val startButton = findViewById<Button>(R.id.startButton)
+        val stopButton = findViewById<Button>(R.id.stopButton)
+        val processButton = findViewById<Button>(R.id.processButton)
+        val testButton = findViewById<Button>(R.id.testButton)
+        val micTestButton = findViewById<Button>(R.id.micTestButton)
+        val stakeCoordButton = findViewById<Button>(R.id.stakeCoordButton)
+        val depthToggleButton = findViewById<Button>(R.id.depthToggleButton)
+        val resetViewButton = findViewById<Button>(R.id.resetViewButton)
+        val depthSlider = findViewById<SeekBar>(R.id.depthSlider)
+        val container = findViewById
