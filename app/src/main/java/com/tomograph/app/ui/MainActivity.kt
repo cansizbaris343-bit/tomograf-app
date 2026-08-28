@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private var depthSliceOn = false
 
     private val micPermissionRequestCode = 501
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -80,60 +81,96 @@ class MainActivity : AppCompatActivity() {
                 tomographyView.setDepthSliceFraction(progress / 100f)
                 if (depthSliceOn) {
                     val depthM = tomographyView.getDepthSliceMeters()
-                    infoText.text = "Kesit derinligi: %.2f m".format(depthM)
+                    infoText.text = "Kesit derinligi: " + depthM + " m"
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-    }private fun showStakeCoordDialog(stakeIndex: Int) {
+    }
+
+    private fun showStakeCoordDialog(stakeIndex: Int) {
         if (stakeIndex >= StakeCoordinates.positions.size) {
             infoText.text = "Tum kazik koordinatlari guncellendi:\n" + StakeCoordinates.summary()
             return
         }
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 24, 48, 24)
-        }
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        layout.setPadding(48, 24, 48, 24)
 
         val current = StakeCoordinates.positions[stakeIndex]
 
-        val xInput = EditText(this).apply {
-            hint = "X metre"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(current[0].toString())
-        }
-        val yInput = EditText(this).apply {
-            hint = "Y metre"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(current[1].toString())
-        }
-        val zInput = EditText(this).apply {
-            hint = "Z derinlik metre negatif"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(current[2].toString())
-        }
+        val xInput = EditText(this)
+        xInput.hint = "X metre"
+        xInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+        xInput.setText(current[0].toString())
 
-        val infoLabel = TextView(this).apply {
-            text = "Kazik " + (stakeIndex + 1) + " - UCUN koordinatini girin"
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 24)
-        }
+        val yInput = EditText(this)
+        yInput.hint = "Y metre"
+        yInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+        yInput.setText(current[1].toString())
+
+        val zInput = EditText(this)
+        zInput.hint = "Z derinlik metre negatif"
+        zInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+        zInput.setText(current[2].toString())
+
+        val infoLabel = TextView(this)
+        infoLabel.text = "Kazik " + (stakeIndex + 1) + " - UCUN koordinatini girin"
+        infoLabel.gravity = Gravity.CENTER
+        infoLabel.setPadding(0, 0, 0, 24)
 
         layout.addView(infoLabel)
         layout.addView(xInput)
         layout.addView(yInput)
         layout.addView(zInput)
 
-        AlertDialog.Builder(this)
-            .setTitle("Kazik koordinati")
-            .setView(layout)
-            .setPositiveButton("Kaydet ve Devam") { _, _ ->
-                val x = xInput.text.toString().toDoubleOrNull() ?: current[0]
-                val y = yInput.text.toString().toDoubleOrNull() ?: current[1]
-                val z = zInput.text.toString().toDoubleOrNull() ?: current[2]
-                private fun startAcquisition() {
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Kazik koordinati")
+        builder.setView(layout)
+        builder.setPositiveButton("Kaydet ve Devam") { _, _ ->
+            val x = xInput.text.toString().toDoubleOrNull() ?: current[0]
+            val y = yInput.text.toString().toDoubleOrNull() ?: current[1]
+            val z = zInput.text.toString().toDoubleOrNull() ?: current[2]
+            StakeCoordinates.updatePosition(stakeIndex, x, y, z)
+            showStakeCoordDialog(stakeIndex + 1)
+        }
+        builder.setNegativeButton("Iptal", null)
+        builder.show()
+    }
+
+    private fun runMicTest() {
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+        if (granted != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), micPermissionRequestCode)
+            statusText.text = "Mikrofon izni isteniyor..."
+            return
+        }
+        startMicTest()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == micPermissionRequestCode) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startMicTest()
+            } else {
+                statusText.text = "Mikrofon izni verilmedi. Test yapilamiyor."
+            }
+        }
+    }
+
+    private fun startMicTest() {
+        statusText.text = "4000-7777 Hz chirp sinyali hazirlaniyor..."
+        AudioChirpTest.runTest { result ->
+            runOnUiThread {
+                statusText.text = result.message
+            }
+        }
+    }
+
+    private fun startAcquisition() {
         daqClient = DaqUdpClient(
             onFrame = { frame -> onFrameReceived(frame) },
             onError = { err -> runOnUiThread { statusText.text = "Baglanti hatasi: " + err.message } }
