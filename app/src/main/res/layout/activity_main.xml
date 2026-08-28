@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="16dp">
 
@@ -54,6 +58,13 @@
         android:layout_marginTop="8dp"
         android:text="Mikrofon ile Frekans Testi" />
 
+    <Button
+        android:id="@+id/stakeCoordButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Kazik Koordinatlarini Gir (Uc Noktasi)" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -96,8 +107,8 @@
     <FrameLayout
         android:id="@+id/tomographyContainer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="500dp"
         android:layout_marginTop="8dp" />
 
 </LinearLayout>
+</ScrollView>
