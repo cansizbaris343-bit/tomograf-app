@@ -25,26 +25,22 @@ class Tomography3DView(context: Context) : View(context) {
 
     private var lastX = 0f
     private var lastY = 0f
-    private var isDragging = false
-    private var isScaling = false
 
     private var selectedInfo: String? = null
     var onVoxelTapped: ((String) -> Unit)? = null
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
+    // Onceden hesaplanmis, ekrana cizilecek nokta listesi (performans icin
+    // her onDraw'da yeniden taranmiyor, sadece updateGrid/derinlik degisince).
+    private data class PointItem(val gx: Float, val gy: Float, val gz: Float, val diff: Float)
+    private var cachedPoints: List<PointItem> = emptyList()
+
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            isScaling = true
-            return true
-        }
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             zoom = (zoom * detector.scaleFactor).coerceIn(0.25f, 6.0f)
             invalidate()
             return true
-        }
-        override fun onScaleEnd(detector: ScaleGestureDetector) {
-            isScaling = false
         }
     })
 
@@ -54,6 +50,7 @@ class Tomography3DView(context: Context) : View(context) {
 
     fun updateGrid(newGrid: VoxelGrid) {
         grid = newGrid
+        rebuildPointCache(newGrid)
         invalidate()
     }
 
@@ -79,33 +76,46 @@ class Tomography3DView(context: Context) : View(context) {
         return depthSliceFraction * g.nz * g.voxelSizeMeters
     }
 
-    // Buyuk gridlerde performans icin adim (step) degerini otomatik ayarlar
-    private fun adaptiveStep(g: VoxelGrid): Int {
+    /** Voksel taramasi SADECE grid guncellendiginde yapilir, her karede degil. */
+    private fun rebuildPointCache(g: VoxelGrid) {
         val totalVoxels = g.nx * g.ny * g.nz
-        return when {
-            totalVoxels > 40000 -> 4
-            totalVoxels > 15000 -> 3
+        val step = when {
+            totalVoxels > 60000 -> 5
+            totalVoxels > 25000 -> 4
+            totalVoxels > 8000 -> 3
             else -> 2
         }
+
+        var sum = 0.0
+        for (v in g.velocities) sum += v
+        val avg = sum / g.velocities.size
+
+        val list = ArrayList<PointItem>()
+        for (iz in 0 until g.nz step step) {
+            for (iy in 0 until g.ny step step) {
+                for (ix in 0 until g.nx step step) {
+                    val v = g.velocities[g.index(ix, iy, iz)]
+                    val diff = ((v - avg) / avg).toFloat()
+                    if (Math.abs(diff) < 0.02f) continue
+                    list.add(PointItem(ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f, diff))
+                }
+            }
+        }
+        cachedPoints = list
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        scaleDetector.onTouchEvent(event)
+        val scaleHandled = scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
-                isDragging = false
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                isDragging = true // ikinci parmak degince surukleme/tap iptal
             }
             MotionEvent.ACTION_MOVE -> {
-                if (event.pointerCount == 1 && !isScaling) {
+                if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
-                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDragging = true
                     rotationY += dx * 0.01f
                     rotationX = (rotationX + dy * 0.01f).coerceIn(-1.4f, 1.4f)
                     invalidate()
@@ -114,7 +124,7 @@ class Tomography3DView(context: Context) : View(context) {
                 lastY = event.y
             }
             MotionEvent.ACTION_UP -> {
-                if (!isDragging && !isScaling && event.pointerCount == 1) {
+                if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
                     handleTap(event.x, event.y)
                 }
             }
@@ -132,51 +142,33 @@ class Tomography3DView(context: Context) : View(context) {
         val centerX = width / 2f
         val centerY = height / 2f
         val scale = baseScale(g)
-        val step = adaptiveStep(g)
-
-        var closestIdx = -1
-        var closestDist = Float.MAX_VALUE
 
         var sum = 0.0
         for (v in g.velocities) sum += v
         val avg = sum / g.velocities.size
 
-        for (iz in 0 until g.nz step step) {
-            if (depthSliceEnabled) {
-                val depthFrac = iz.toFloat() / g.nz
-                if (Math.abs(depthFrac - depthSliceFraction) > 0.08f) continue
-            }
-            for (iy in 0 until g.ny step step) {
-                for (ix in 0 until g.nx step step) {
-                    val idx = g.index(ix, iy, iz)
-                    val v = g.velocities[idx]
-                    val diff = (v - avg) / avg
-                    if (Math.abs(diff) < 0.02) continue
-
-                    val (sx, sy) = project(ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f, scale, centerX, centerY)
-                    val dist = (sx - screenX) * (sx - screenX) + (sy - screenY) * (sy - screenY)
-                    if (dist < closestDist) {
-                        closestDist = dist
-                        closestIdx = idx
-                    }
-                }
+        var closest: PointItem? = null
+        var closestDist = Float.MAX_VALUE
+        for (p in cachedPoints) {
+            val (sx, sy) = project(p.gx, p.gy, p.gz, scale, centerX, centerY)
+            val dist = (sx - screenX) * (sx - screenX) + (sy - screenY) * (sy - screenY)
+            if (dist < closestDist) {
+                closestDist = dist
+                closest = p
             }
         }
 
-        if (closestIdx >= 0 && closestDist < 1000f) {
-            val v = g.velocities[closestIdx]
-            val diff = (v - avg) / avg * 100
-            val izApprox = closestIdx / (g.nx * g.ny)
-            val depthMeters = izApprox * g.voxelSizeMeters
-            val tip = if (diff < 0) "dusuk yogunluk (bosluk ihtimali)" else "yuksek yogunluk (yogun/sert)"
-            selectedInfo = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nDerinlik: %.2f m".format(v, diff, tip, depthMeters)
+        if (closest != null && closestDist < 1200f) {
+            val depthMeters = (closest.gz + g.nz / 2f) * g.voxelSizeMeters
+            val v = avg * (1 + closest.diff)
+            val diffPct = closest.diff * 100
+            val tip = if (closest.diff < 0) "dusuk yogunluk (bosluk ihtimali)" else "yuksek yogunluk (yogun/sert)"
+            selectedInfo = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nDerinlik: %.2f m".format(v, diffPct, tip, depthMeters)
             onVoxelTapped?.invoke(selectedInfo!!)
             invalidate()
         }
     }
 
-    // 3B nokta (grid merkezine gore, metre*voxel biriminde degil, izgara birimi cinsinden)
-    // once döndür sonra ekrana izdusur
     private fun project(px: Float, py: Float, pz: Float, scale: Float, centerX: Float, centerY: Float): Pair<Float, Float> {
         val sx = px * scale
         val sy = py * scale
@@ -205,37 +197,23 @@ class Tomography3DView(context: Context) : View(context) {
         val centerX = width / 2f
         val centerY = height / 2f
         val scale = baseScale(g)
-        val step = adaptiveStep(g)
 
         drawWireframeCube(canvas, g, scale, centerX, centerY)
 
-        var sum = 0.0
-        for (v in g.velocities) sum += v
-        val avg = sum / g.velocities.size
-
-        for (iz in 0 until g.nz step step) {
+        for (p in cachedPoints) {
             if (depthSliceEnabled) {
-                val depthFrac = iz.toFloat() / g.nz
+                val depthFrac = (p.gz + g.nz / 2f) / g.nz
                 if (Math.abs(depthFrac - depthSliceFraction) > 0.08f) continue
             }
-            for (iy in 0 until g.ny step step) {
-                for (ix in 0 until g.nx step step) {
-                    val idx = g.index(ix, iy, iz)
-                    val v = g.velocities[idx]
-                    val diff = (v - avg) / avg
-                    if (Math.abs(diff) < 0.02) continue
+            val (screenX, screenY) = project(p.gx, p.gy, p.gz, scale, centerX, centerY)
 
-                    val (screenX, screenY) = project(ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f, scale, centerX, centerY)
-
-                    paint.color = if (diff < 0) {
-                        Color.rgb((80 + diff * -300).toInt().coerceIn(0, 255), 120, 255)
-                    } else {
-                        Color.rgb(255, (200 - diff * 300).toInt().coerceIn(0, 200), 60)
-                    }
-                    val radius = (5f + (Math.abs(diff) * 18).toFloat().coerceIn(2f, 16f))
-                    canvas.drawCircle(screenX, screenY, radius, paint)
-                }
+            paint.color = if (p.diff < 0) {
+                Color.rgb((80 + p.diff * -300).toInt().coerceIn(0, 255), 120, 255)
+            } else {
+                Color.rgb(255, (200 - p.diff * 300).toInt().coerceIn(0, 200), 60)
             }
+            val radius = 5f + (Math.abs(p.diff) * 18f).coerceIn(2f, 16f)
+            canvas.drawCircle(screenX, screenY, radius, paint)
         }
 
         paint.color = Color.LTGRAY
@@ -258,18 +236,11 @@ class Tomography3DView(context: Context) : View(context) {
         }
     }
 
-    /**
-     * Tarama hacminin sinirlarini bir tel-kafes kup olarak cizer.
-     * Kupun kenarlari, noktalarla AYNI dondurme/zoom donusumunu kullanir -
-     * boylece kup ve uzerindeki olcu etiketleri gorüntuyle birlikte doner
-     * ve buyur/kuculur (ekrana sabit degildir).
-     */
     private fun drawWireframeCube(canvas: Canvas, g: VoxelGrid, scale: Float, centerX: Float, centerY: Float) {
         val hx = g.nx / 2f
         val hy = g.ny / 2f
         val hz = g.nz / 2f
 
-        // Kupun 8 kosesi (izgara birimi cinsinden, merkeze gore)
         val corners = arrayOf(
             floatArrayOf(-hx, -hy, -hz), floatArrayOf(hx, -hy, -hz),
             floatArrayOf(hx, hy, -hz), floatArrayOf(-hx, hy, -hz),
@@ -290,11 +261,8 @@ class Tomography3DView(context: Context) : View(context) {
             canvas.drawLine(projected[a].first, projected[a].second, projected[b].first, projected[b].second, paint)
         }
 
-        // Genislik (X) olcusu - alt on kenar boyunca (kose 0-1)
         drawEdgeRuler(canvas, corners[0], corners[1], g.nx * g.voxelSizeMeters, scale, centerX, centerY, "Genislik X")
-        // Derinlik (Y, yatay ikinci eksen) - alt on kenar (kose 0-3)
         drawEdgeRuler(canvas, corners[0], corners[3], g.ny * g.voxelSizeMeters, scale, centerX, centerY, "Genislik Y")
-        // Derinlik (Z, dikey) - sol on dikey kenar (kose 0-4)
         drawEdgeRuler(canvas, corners[0], corners[4], g.nz * g.voxelSizeMeters, scale, centerX, centerY, "Derinlik")
     }
 
