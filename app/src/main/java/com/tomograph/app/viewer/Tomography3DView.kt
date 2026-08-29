@@ -36,9 +36,10 @@ class Tomography3DView(context: Context) : View(context) {
 
     private var verticalExaggeration = 1.0f
 
-    // Her karede BIR kere hesaplanan trigonometrik degerler - performans icin.
-    private var cosY = 1f; private var sinY = 0f
-    private var cosX = 1f; private var sinX = 0f
+    private var cosY = 1f
+    private var sinY = 0f
+    private var cosX = 1f
+    private var sinX = 0f
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -113,6 +114,12 @@ class Tomography3DView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // KRITIK DUZELTME: View bir ScrollView icinde oldugu icin, iki parmakla
+        // dokunma baslar baslamaz ebeveyn (ScrollView) bu olayi kendi kaydirmasi
+        // icin kesip almaya calisir. Asagidaki satir bunu engelleyip dokunmanin
+        // tamamini bu View'a ayirir - zoom'un calismasi icin sarttir.
+        parent?.requestDisallowInterceptTouchEvent(true)
+
         scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
@@ -132,9 +139,13 @@ class Tomography3DView(context: Context) : View(context) {
                 lastY = event.y
             }
             MotionEvent.ACTION_UP -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
                 if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
                     handleTap(event.x, event.y)
                 }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
             }
         }
         return true
@@ -146,8 +157,10 @@ class Tomography3DView(context: Context) : View(context) {
     }
 
     private fun updateTrig() {
-        cosY = cos(rotationY); sinY = sin(rotationY)
-        cosX = cos(rotationX); sinX = sin(rotationX)
+        cosY = cos(rotationY)
+        sinY = sin(rotationY)
+        cosX = cos(rotationX)
+        sinX = sin(rotationX)
     }
 
     private fun handleTap(screenX: Float, screenY: Float) {
@@ -183,7 +196,6 @@ class Tomography3DView(context: Context) : View(context) {
         }
     }
 
-    /** cosY/sinY/cosX/sinX onceden hesaplanmis olmali (updateTrig cagrilmis olmali). */
     private fun project(px: Float, py: Float, pz: Float, scale: Float, centerX: Float, centerY: Float): Pair<Float, Float> {
         val sx = px * scale
         val sy = py * scale
