@@ -211,32 +211,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val xs = stakePositions.map { it[0] }
-        val ys = stakePositions.map { it[1] }
-        val spanX = (xs.max() - xs.min()).coerceAtLeast(1.0) + 1.0
-        val spanY = (ys.max() - ys.min()).coerceAtLeast(1.0) + 1.0
-
+        // Genislik (X, Y) ve derinlik (Z) artik esit: 7 metre x 7 metre x 7 metre.
+        // Boylece 3B kup gorunumu okunakli, esit oranli olur.
         val voxelSize = 0.20
-        val nx = (spanX / voxelSize).toInt().coerceAtLeast(10)
-        val ny = (spanY / voxelSize).toInt().coerceAtLeast(10)
-
-        val depthMeters = 7.0
-        val nz = (depthMeters / voxelSize).toInt()
+        val sideMeters = 7.0
+        val n = (sideMeters / voxelSize).toInt()
 
         val grid = VoxelGrid(
-            nx = nx, ny = ny, nz = nz,
-            originX = -(nx * voxelSize) / 2.0,
-            originY = -(ny * voxelSize) / 2.0,
-            originZ = -depthMeters,
+            nx = n, ny = n, nz = n,
+            originX = -sideMeters / 2.0,
+            originY = -sideMeters / 2.0,
+            originZ = -sideMeters,
             voxelSizeMeters = voxelSize
         )
 
-        val cx = nx / 2
-        val cy = ny / 2
-        val cz = nz / 2
-        for (iz in (cz - 2)..(cz + 2)) {
-            for (iy in (cy - 2)..(cy + 2)) {
-                for (ix in (cx - 2)..(cx + 2)) {
+        val c = n / 2
+        for (iz in (c - 2)..(c + 2)) {
+            for (iy in (c - 2)..(c + 2)) {
+                for (ix in (c - 2)..(c + 2)) {
                     if (grid.inBounds(ix, iy, iz)) {
                         grid.velocities[grid.index(ix, iy, iz)] = 900.0
                     }
@@ -249,7 +241,7 @@ class MainActivity : AppCompatActivity() {
 
         tomographyView.updateGrid(result)
         statusText.text = "Test tomografisi hazir, " + rays.size + " ray-path, simule veri."
-        infoText.text = "Goruntulenen alan hesaplandi. Derinlik 7 metre."
+        infoText.text = "Goruntulenen alan: 7m x 7m x 7m (esit oranli kup)."
     }
 
     private fun distance3D(a: DoubleArray, b: DoubleArray): Double {
