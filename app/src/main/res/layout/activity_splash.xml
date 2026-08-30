@@ -7,28 +7,34 @@
     android:background="#0F1420">
 
     <TextView
+        android:id="@+id/titleText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Yeralti Tomografi"
         android:textColor="#FFFFFF"
-        android:textSize="26sp"
-        android:textStyle="bold" />
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:alpha="0" />
 
     <TextView
+        android:id="@+id/numberText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="1.618-19"
+        android:layout_marginTop="28dp"
+        android:text="1.639-19"
         android:textColor="#FF9800"
-        android:textSize="42sp"
-        android:textStyle="bold" />
+        android:textSize="46sp"
+        android:textStyle="bold"
+        android:alpha="0" />
 
     <TextView
+        android:id="@+id/freqText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:text="4000 - 7777 Hz"
         android:textColor="#4DD0E1"
-        android:textSize="16sp" />
+        android:textSize="15sp"
+        android:alpha="0" />
 
 </LinearLayout>
