@@ -1,0 +1,53 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Merkez sinyal kaynagi -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M54,38m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+
+    <!-- Ic dalga halkasi -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3"
+        android:pathData="M54,38 m-16,0 a16,16 0 1 1 32,0 a16,16 0 1 1 -32,0" />
+
+    <!-- Orta dalga halkasi -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5"
+        android:fillAlpha="0"
+        android:pathData="M54,38 m-27,0 a27,27 0 1 1 54,0 a27,27 0 1 1 -54,0" />
+
+    <!-- Dis dalga halkasi -->
+    <path
+        android:strokeColor="#4DD0E1"
+        android:strokeWidth="2"
+        android:pathData="M54,38 m-38,0 a38,38 0 1 1 76,0 a38,38 0 1 1 -76,0" />
+
+    <!-- Yer alti derinlik cizgileri -->
+    <path
+        android:strokeColor="#FF9800"
+        android:strokeWidth="2.5"
+        android:pathData="M20,72 L88,72" />
+    <path
+        android:strokeColor="#FF9800"
+        android:strokeAlpha="0.6"
+        android:strokeWidth="2"
+        android:pathData="M24,84 L84,84" />
+    <path
+        android:strokeColor="#FF9800"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="1.5"
+        android:pathData="M30,94 L78,94" />
+
+    <!-- Sinyal isini yere iniyor -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.8"
+        android:pathData="M54,50 L54,72" />
+</vector>
