@@ -33,6 +33,10 @@ class MainActivity : AppCompatActivity() {
     private var daqClient: DaqUdpClient? = null
     private var depthSliceOn = false
 
+    // Sahada olcumle otomatik tespit edilen nufuz derinligi. Bulunana kadar
+    // varsayilan 1.5 metre kullanilir (gercekci, iddiali olmayan baslangic).
+    private var detectedDepthMeters = 1.5
+
     private val micPermissionRequestCode = 501
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -180,6 +184,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onFrameReceived(frame: SampleFrame) {
+        // Gercek donanim baglandiginda, buraya biriken orneklerden
+        // ArrivalTimePicker.detectPenetrationDepth() cagrilarak
+        // detectedDepthMeters gercek zamanli guncellenecek.
     }
 
     private fun stopAcquisition() {
@@ -211,11 +218,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Genislik (X, Y) ve derinlik (Z) artik esit: 7 metre x 7 metre x 7 metre.
-        // Boylece 3B kup gorunumu okunakli, esit oranli olur.
+        // NOT: sideMeters artik sabit 7 degil, sahada tespit edilen (ya da
+        // henuz olcum yapilmadiysa varsayilan 1.5m) gercek derinlik kullanilir.
         val voxelSize = 0.20
-        val sideMeters = 7.0
-        val n = (sideMeters / voxelSize).toInt()
+        val sideMeters = detectedDepthMeters.coerceAtLeast(0.3)
+        val n = (sideMeters / voxelSize).toInt().coerceAtLeast(4)
 
         val grid = VoxelGrid(
             nx = n, ny = n, nz = n,
@@ -226,9 +233,10 @@ class MainActivity : AppCompatActivity() {
         )
 
         val c = n / 2
-        for (iz in (c - 2)..(c + 2)) {
-            for (iy in (c - 2)..(c + 2)) {
-                for (ix in (c - 2)..(c + 2)) {
+        val spread = (n / 8).coerceAtLeast(1)
+        for (iz in (c - spread)..(c + spread)) {
+            for (iy in (c - spread)..(c + spread)) {
+                for (ix in (c - spread)..(c + spread)) {
                     if (grid.inBounds(ix, iy, iz)) {
                         grid.velocities[grid.index(ix, iy, iz)] = 900.0
                     }
@@ -241,7 +249,8 @@ class MainActivity : AppCompatActivity() {
 
         tomographyView.updateGrid(result)
         statusText.text = "Test tomografisi hazir, " + rays.size + " ray-path, simule veri."
-        infoText.text = "Goruntulenen alan: 7m x 7m x 7m (esit oranli kup)."
+        infoText.text = "Goruntulenen alan: " + sideMeters + "m x " + sideMeters + "m x " + sideMeters + "m " +
+            "(tespit edilen/varsayilan derinlige gore)."
     }
 
     private fun distance3D(a: DoubleArray, b: DoubleArray): Double {
