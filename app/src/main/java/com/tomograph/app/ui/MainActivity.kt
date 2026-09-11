@@ -33,8 +33,9 @@ class MainActivity : AppCompatActivity() {
     private var daqClient: DaqUdpClient? = null
     private var depthSliceOn = false
 
-    // Sahada olcumle otomatik tespit edilen nufuz derinligi. Bulunana kadar
-    // varsayilan 1.5 metre kullanilir (gercekci, iddiali olmayan baslangic).
+    // Sahada gercek olcumle otomatik tespit edilen nufuz derinligi (metre).
+    // Ust sinir YOKTUR - sinyal ne kadar derine indiyse o deger kullanilir.
+    // Donanim/gercek veri gelene kadar varsayilan gercekci bir baslangic (1.5m).
     private var detectedDepthMeters = 1.5
 
     private val micPermissionRequestCode = 501
@@ -106,12 +107,12 @@ class MainActivity : AppCompatActivity() {
         val current = StakeCoordinates.positions[stakeIndex]
 
         val xInput = EditText(this)
-        xInput.hint = "X metre"
+        xInput.hint = "X metre (-3.5 ile +3.5 arasi, 7m alan)"
         xInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
         xInput.setText(current[0].toString())
 
         val yInput = EditText(this)
-        yInput.hint = "Y metre"
+        yInput.hint = "Y metre (-3.5 ile +3.5 arasi, 7m alan)"
         yInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
         yInput.setText(current[1].toString())
 
@@ -121,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         zInput.setText(current[2].toString())
 
         val infoLabel = TextView(this)
-        infoLabel.text = "Kazik " + (stakeIndex + 1) + " - UCUN koordinatini girin"
+        infoLabel.text = "Kazik " + (stakeIndex + 1) + " / 4 - UCUN koordinatini girin"
         infoLabel.gravity = Gravity.CENTER
         infoLabel.setPadding(0, 0, 0, 24)
 
@@ -186,7 +187,8 @@ class MainActivity : AppCompatActivity() {
     private fun onFrameReceived(frame: SampleFrame) {
         // Gercek donanim baglandiginda, buraya biriken orneklerden
         // ArrivalTimePicker.detectPenetrationDepth() cagrilarak
-        // detectedDepthMeters gercek zamanli guncellenecek.
+        // detectedDepthMeters gercek zamanli guncellenecek. Bu deger
+        // ust sinirsizdir - sinyal 4m, 19m ne derse o kabul edilir.
     }
 
     private fun stopAcquisition() {
@@ -218,25 +220,35 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // NOT: sideMeters artik sabit 7 degil, sahada tespit edilen (ya da
-        // henuz olcum yapilmadiysa varsayilan 1.5m) gercek derinlik kullanilir.
         val voxelSize = 0.20
-        val sideMeters = detectedDepthMeters.coerceAtLeast(0.3)
-        val n = (sideMeters / voxelSize).toInt().coerceAtLeast(4)
+
+        // GENISLIK: sabit 7 metre (kazik aralik alani). Kazik koordinatlari
+        // zaten bu alanla sinirli (StakeCoordinates.MAX_HORIZONTAL_SPAN_METERS).
+        val widthMeters = StakeCoordinates.MAX_HORIZONTAL_SPAN_METERS
+        val nx = (widthMeters / voxelSize).toInt().coerceAtLeast(4)
+        val ny = nx
+
+        // DERINLIK: otomatik tespit edilen gercek deger, UST SINIR YOK.
+        // 4m de olsa 19m de olsa, sinyal ne veriyorsa o kullanilir.
+        val depthMeters = detectedDepthMeters.coerceAtLeast(0.2)
+        val nz = (depthMeters / voxelSize).toInt().coerceAtLeast(2)
 
         val grid = VoxelGrid(
-            nx = n, ny = n, nz = n,
-            originX = -sideMeters / 2.0,
-            originY = -sideMeters / 2.0,
-            originZ = -sideMeters,
+            nx = nx, ny = ny, nz = nz,
+            originX = -widthMeters / 2.0,
+            originY = -widthMeters / 2.0,
+            originZ = -depthMeters,
             voxelSizeMeters = voxelSize
         )
 
-        val c = n / 2
-        val spread = (n / 8).coerceAtLeast(1)
-        for (iz in (c - spread)..(c + spread)) {
-            for (iy in (c - spread)..(c + spread)) {
-                for (ix in (c - spread)..(c + spread)) {
+        val cx = nx / 2
+        val cy = ny / 2
+        val cz = nz / 2
+        val spreadXY = (nx / 8).coerceAtLeast(1)
+        val spreadZ = (nz / 8).coerceAtLeast(1)
+        for (iz in (cz - spreadZ)..(cz + spreadZ)) {
+            for (iy in (cy - spreadXY)..(cy + spreadXY)) {
+                for (ix in (cx - spreadXY)..(cx + spreadXY)) {
                     if (grid.inBounds(ix, iy, iz)) {
                         grid.velocities[grid.index(ix, iy, iz)] = 900.0
                     }
@@ -249,8 +261,8 @@ class MainActivity : AppCompatActivity() {
 
         tomographyView.updateGrid(result)
         statusText.text = "Test tomografisi hazir, " + rays.size + " ray-path, simule veri."
-        infoText.text = "Goruntulenen alan: " + sideMeters + "m x " + sideMeters + "m x " + sideMeters + "m " +
-            "(tespit edilen/varsayilan derinlige gore)."
+        infoText.text = "Genislik: " + widthMeters + "m x " + widthMeters + "m (sabit kazik alani). " +
+            "Derinlik: " + depthMeters + "m (otomatik tespit/varsayilan)."
     }
 
     private fun distance3D(a: DoubleArray, b: DoubleArray): Double {
