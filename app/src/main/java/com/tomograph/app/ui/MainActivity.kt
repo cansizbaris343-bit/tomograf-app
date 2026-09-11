@@ -33,9 +33,6 @@ class MainActivity : AppCompatActivity() {
     private var daqClient: DaqUdpClient? = null
     private var depthSliceOn = false
 
-    // Sahada gercek olcumle otomatik tespit edilen nufuz derinligi (metre).
-    // Ust sinir YOKTUR - sinyal ne kadar derine indiyse o deger kullanilir.
-    // Donanim/gercek veri gelene kadar varsayilan gercekci bir baslangic (1.5m).
     private var detectedDepthMeters = 1.5
 
     private val micPermissionRequestCode = 501
@@ -185,10 +182,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onFrameReceived(frame: SampleFrame) {
-        // Gercek donanim baglandiginda, buraya biriken orneklerden
-        // ArrivalTimePicker.detectPenetrationDepth() cagrilarak
-        // detectedDepthMeters gercek zamanli guncellenecek. Bu deger
-        // ust sinirsizdir - sinyal 4m, 19m ne derse o kabul edilir.
     }
 
     private fun stopAcquisition() {
@@ -222,14 +215,10 @@ class MainActivity : AppCompatActivity() {
 
         val voxelSize = 0.20
 
-        // GENISLIK: sabit 7 metre (kazik aralik alani). Kazik koordinatlari
-        // zaten bu alanla sinirli (StakeCoordinates.MAX_HORIZONTAL_SPAN_METERS).
         val widthMeters = StakeCoordinates.MAX_HORIZONTAL_SPAN_METERS
         val nx = (widthMeters / voxelSize).toInt().coerceAtLeast(4)
         val ny = nx
 
-        // DERINLIK: otomatik tespit edilen gercek deger, UST SINIR YOK.
-        // 4m de olsa 19m de olsa, sinyal ne veriyorsa o kullanilir.
         val depthMeters = detectedDepthMeters.coerceAtLeast(0.2)
         val nz = (depthMeters / voxelSize).toInt().coerceAtLeast(2)
 
@@ -241,11 +230,13 @@ class MainActivity : AppCompatActivity() {
             voxelSizeMeters = voxelSize
         )
 
+        // Anomali boyutu artik grid oranina degil, SABIT minimum hucre sayisina
+        // dayanir (en az 2 hucre yaricap) - kucuk gridlerde kaybolmasini onler.
         val cx = nx / 2
         val cy = ny / 2
         val cz = nz / 2
-        val spreadXY = (nx / 8).coerceAtLeast(1)
-        val spreadZ = (nz / 8).coerceAtLeast(1)
+        val spreadXY = 2
+        val spreadZ = (nz / 4).coerceAtLeast(1)
         for (iz in (cz - spreadZ)..(cz + spreadZ)) {
             for (iy in (cy - spreadXY)..(cy + spreadXY)) {
                 for (ix in (cx - spreadXY)..(cx + spreadXY)) {
