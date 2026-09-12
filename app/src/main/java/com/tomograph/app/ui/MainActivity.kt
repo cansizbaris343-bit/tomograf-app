@@ -230,8 +230,9 @@ class MainActivity : AppCompatActivity() {
             voxelSizeMeters = voxelSize
         )
 
-        // Anomali boyutu artik grid oranina degil, SABIT minimum hucre sayisina
-        // dayanir (en az 2 hucre yaricap) - kucuk gridlerde kaybolmasini onler.
+        // Anomali kontrasti guclendirildi (900->600) ve yumusatma iterasyonu
+        // azaltildi (60->18) - ince (dusuk derinlikli) gridlerde asiri
+        // yumusatmanin kontrasti eritmesini onlemek icin.
         val cx = nx / 2
         val cy = ny / 2
         val cz = nz / 2
@@ -241,13 +242,13 @@ class MainActivity : AppCompatActivity() {
             for (iy in (cy - spreadXY)..(cy + spreadXY)) {
                 for (ix in (cx - spreadXY)..(cx + spreadXY)) {
                     if (grid.inBounds(ix, iy, iz)) {
-                        grid.velocities[grid.index(ix, iy, iz)] = 900.0
+                        grid.velocities[grid.index(ix, iy, iz)] = 600.0
                     }
                 }
             }
         }
 
-        val inversion = SirtInversion(grid, iterations = 60)
+        val inversion = SirtInversion(grid, iterations = 18)
         val result = inversion.invert(rays)
 
         tomographyView.updateGrid(result)
