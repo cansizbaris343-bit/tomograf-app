@@ -8,13 +8,19 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import com.tomograph.app.dsp.ArrivalTimePicker
 import com.tomograph.app.dsp.BandpassFilter
+import com.tomograph.app.tomography.SoilProfile
 import kotlin.concurrent.thread
 import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Telefonun kendi hoparlor ve mikrofonunu kullanarak, 4000-7777 Hz chirp
- * sinyalinin gercekten uretilip yakalanabildigini dogrulayan bagimsiz test.
+ * Telefonun kendi hoparlor ve mikrofonunu kullanarak, calisma bandindaki
+ * chirp sinyalinin gercekten uretilip yakalanabildigini dogrulayan
+ * bagimsiz test.
+ *
+ * BANT: Sabit kodlanmis degil - SoilProfile.current.recommendedLowHz/HighHz
+ * degerlerinden okunur. Toprak tipi (kuru/nemli/doygun) degisince bu test de
+ * otomatik olarak dogru bandi kullanir.
  *
  * Bu, gercek tomografi olcumu DEGILDIR (hava yoluyla hoparlor->mikrofon
  * dogrudan gider, zeminden gecmez). Sadece donanim + DSP algoritmasinin
@@ -24,8 +30,6 @@ object AudioChirpTest {
 
     private const val SAMPLE_RATE = 44100
     private const val CHIRP_DURATION_SEC = 0.3
-    private const val F0 = 4000.0
-    private const val F1 = 7777.0
 
     data class TestResult(
         val success: Boolean,
@@ -37,7 +41,10 @@ object AudioChirpTest {
     fun runTest(onResult: (TestResult) -> Unit) {
         thread {
             try {
-                val chirp = generateChirp()
+                val f0 = SoilProfile.current.recommendedLowHz
+                val f1 = SoilProfile.current.recommendedHighHz
+
+                val chirp = generateChirp(f0, f1)
                 val recordSamples = SAMPLE_RATE * 2 // 2 saniyelik kayit penceresi
 
                 val recordBufferSize = AudioRecord.getMinBufferSize(
@@ -78,7 +85,7 @@ object AudioChirpTest {
 
                 val recordedDouble = DoubleArray(totalRead) { recordedShorts[it].toDouble() }
 
-                val filter = BandpassFilter(SAMPLE_RATE.toDouble(), F0, F1)
+                val filter = BandpassFilter(SAMPLE_RATE.toDouble(), f0, f1)
                 val filtered = filter.processBuffer(recordedDouble)
 
                 val arrival = ArrivalTimePicker.pick(chirp, filtered, SAMPLE_RATE.toDouble())
@@ -87,10 +94,13 @@ object AudioChirpTest {
 
                 val success = arrival.confidence > 1.5 && delayMs in -50.0..1500.0
 
+                val bandInfo = "%.0f-%.0f Hz".format(f0, f1)
                 val msg = if (success) {
-                    "Basarili: Chirp yakalandi. Gecikme: %.1f ms, Guven: %.1f".format(delayMs, arrival.confidence)
+                    "Basarili (%s bandi): Chirp yakalandi. Gecikme: %.1f ms, Guven: %.1f"
+                        .format(bandInfo, delayMs, arrival.confidence)
                 } else {
-                    "Sinyal net tespit edilemedi (guven: %.2f). Ortam gurultusunu azaltip, sesi acip tekrar deneyin.".format(arrival.confidence)
+                    "Sinyal net tespit edilemedi (bant: %s, guven: %.2f). Ortam gurultusunu azaltip, sesi acip tekrar deneyin."
+                        .format(bandInfo, arrival.confidence)
                 }
 
                 onResult(TestResult(success, msg, delayMs, arrival.confidence))
@@ -103,12 +113,12 @@ object AudioChirpTest {
         }
     }
 
-    private fun generateChirp(): DoubleArray {
+    private fun generateChirp(f0: Double, f1: Double): DoubleArray {
         val n = (CHIRP_DURATION_SEC * SAMPLE_RATE).toInt()
-        val k = (F1 - F0) / CHIRP_DURATION_SEC
+        val k = (f1 - f0) / CHIRP_DURATION_SEC
         return DoubleArray(n) { i ->
             val t = i / SAMPLE_RATE.toDouble()
-            sin(2 * PI * (F0 * t + 0.5 * k * t * t))
+            sin(2 * PI * (f0 * t + 0.5 * k * t * t))
         }
     }
 
