@@ -2,10 +2,23 @@ package com.tomograph.app.dsp
 
 import kotlin.math.*
 
+/**
+ * BANT SECIMI: Varsayilan 1000-4200 Hz, sistemin ayarlanabilir calisma
+ * bandinin ust ucu civarinda tutulur (iyimser/doygun toprak senaryosu).
+ *
+ * Saha toprak nemine gore bu bandin disaridan (constructor parametreleriyle)
+ * degistirilmesi beklenir:
+ *   - Suya doygun toprak : ~3700-4200 Hz (iyi cozunurluk + 12-15m derinlik)
+ *   - Nemli toprak        : ~1200-1700 Hz (orta cozunurluk, yine 12-15m hedefi)
+ *   - Kuru toprak         : ~300-500 Hz (kaba cozunurluk, sinirli derinlik)
+ *
+ * Bu araliklar sabit degildir - gercek saha olcumunde elde edilen toprak
+ * hizi/sogurma degerlerine (SoilProfile) gore yeniden hesaplanmalidir.
+ */
 class BandpassFilter(
     sampleRateHz: Double,
-    lowHz: Double = 4000.0,
-    highHz: Double = 7777.0
+    lowHz: Double = 1000.0,
+    highHz: Double = 4200.0
 ) {
     private data class Biquad(val b0: Double, val b1: Double, val b2: Double,
                                val a1: Double, val a2: Double) {
