@@ -433,7 +433,12 @@ class Tomography3DView(context: Context) : View(context) {
 
         drawEdgeRuler(canvas, corners[0], corners[1], g.nx * g.voxelSizeMeters, scale, centerX, centerY, "Genislik X")
         drawEdgeRuler(canvas, corners[0], corners[3], g.ny * g.voxelSizeMeters, scale, centerX, centerY, "Genislik Y")
-        drawEdgeRuler(canvas, corners[0], corners[4], g.nz * g.voxelSizeMeters, scale, centerX, centerY, "Derinlik")
+        // DUZELTME: corners[0] (iz=0) EN DERIN nokta, corners[4] (iz=nz) ise
+        // YUZEYE yakin nokta - eskiden cetvel bunu ters etiketliyordu (yuzeyi
+        // "buyuk derinlik", en derin noktayi "0m" gosteriyordu). Baslangic/bitis
+        // corners[4]->corners[0] olarak degistirildi: yuzey artik "0,0m",
+        // en derin nokta gercek toplam derinligi gosteriyor.
+        drawEdgeRuler(canvas, corners[4], corners[0], g.nz * g.voxelSizeMeters, scale, centerX, centerY, "Derinlik")
     }
 
     private fun drawEdgeRuler(
