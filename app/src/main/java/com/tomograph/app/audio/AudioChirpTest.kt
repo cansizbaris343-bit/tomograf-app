@@ -8,10 +8,9 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import com.tomograph.app.dsp.ArrivalTimePicker
 import com.tomograph.app.dsp.BandpassFilter
+import com.tomograph.app.dsp.ChirpSignal
 import com.tomograph.app.tomography.SoilProfile
 import kotlin.concurrent.thread
-import kotlin.math.PI
-import kotlin.math.sin
 
 /**
  * Telefonun kendi hoparlor ve mikrofonunu kullanarak, calisma bandindaki
@@ -44,7 +43,7 @@ object AudioChirpTest {
                 val f0 = SoilProfile.current.recommendedLowHz
                 val f1 = SoilProfile.current.recommendedHighHz
 
-                val chirp = generateChirp(f0, f1)
+                val chirp = ChirpSignal.generate(f0, f1, CHIRP_DURATION_SEC, SAMPLE_RATE.toDouble())
                 val recordSamples = SAMPLE_RATE * 2 // 2 saniyelik kayit penceresi
 
                 val recordBufferSize = AudioRecord.getMinBufferSize(
@@ -110,15 +109,6 @@ object AudioChirpTest {
             } catch (t: Throwable) {
                 onResult(TestResult(false, "Hata: ${t.message}"))
             }
-        }
-    }
-
-    private fun generateChirp(f0: Double, f1: Double): DoubleArray {
-        val n = (CHIRP_DURATION_SEC * SAMPLE_RATE).toInt()
-        val k = (f1 - f0) / CHIRP_DURATION_SEC
-        return DoubleArray(n) { i ->
-            val t = i / SAMPLE_RATE.toDouble()
-            sin(2 * PI * (f0 * t + 0.5 * k * t * t))
         }
     }
 
