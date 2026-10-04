@@ -296,6 +296,20 @@ class MainActivity : AppCompatActivity() {
             val filtered = filter.processBuffer(raw)
             val arrival = ArrivalTimePicker.pick(referenceChirp, filtered, DAQ_SAMPLE_RATE_HZ)
 
+            // OTOMATIK DERINLIK BUYUTME: sinyalin gurultu tabanina ne zaman
+            // dustugunu bulup, gercekte ne kadar derine indigini tahmin eder.
+            // Mevcut tahminden daha derin bir sonuc cikarsa (ve guvenilirse),
+            // izgara bir sonraki refreshLiveInversion() cagrisinda buyur.
+            val penetration = ArrivalTimePicker.detectPenetrationDepth(
+                filtered, DAQ_SAMPLE_RATE_HZ, SoilProfile.current.soundSpeedMs
+            )
+            if (penetration.cutoffDetected && penetration.depthMeters > detectedDepthMeters) {
+                detectedDepthMeters = penetration.depthMeters
+                runOnUiThread {
+                    statusText.text = "Derinlik tahmini guncellendi: %.2f m".format(detectedDepthMeters)
+                }
+            }
+
             if (arrival.confidence < 1.0) continue // guvenilmez olcum, atla
 
             val pairKey = txIndex.toString() + "-" + rxStake.toString()
@@ -366,8 +380,36 @@ class MainActivity : AppCompatActivity() {
     // SENTETIK TEST (donanim olmadan algoritmayi dogrulamak icin - degismedi)
     // =========================================================================
 
+    // Test modunda "gercek" bir derinlige sinyal gondermiyoruz (donanim yok),
+    // bu yuzden otomatik derinlik tespitini DOGRULAMAK icin, bu kadar derinde
+    // sinyalin gurultu tabanina dustugunu VARSAYAN sentetik bir dalga formu
+    // uretip ayni ArrivalTimePicker.detectPenetrationDepth() fonksiyonunu
+    // (canli koddaki ile BIREBIR AYNI) calistiriyoruz. Bu, gercek saha
+    // olcumu degildir - sadece algoritmanin uctan uca calistigini gosterir.
+    private val TEST_SIMULATED_DEPTH_METERS = 15.0
+
+    private fun simulateDepthDetectionForTest() {
+        val v = SoilProfile.current.soundSpeedMs
+        val cutoffTimeSec = (2.0 * TEST_SIMULATED_DEPTH_METERS) / v
+        val totalTimeSec = cutoffTimeSec * 1.3
+        val totalSamples = (totalTimeSec * DAQ_SAMPLE_RATE_HZ).toInt().coerceAtLeast(64)
+        val cutoffSample = (cutoffTimeSec * DAQ_SAMPLE_RATE_HZ).toInt()
+
+        val rng = Random
+        val synthetic = DoubleArray(totalSamples) { i ->
+            val noiseAmplitude = if (i < cutoffSample) 500.0 else 40.0
+            (rng.nextDouble() - 0.5) * 2.0 * noiseAmplitude
+        }
+
+        val result = ArrivalTimePicker.detectPenetrationDepth(synthetic, DAQ_SAMPLE_RATE_HZ, v)
+        if (result.cutoffDetected && result.depthMeters > detectedDepthMeters) {
+            detectedDepthMeters = result.depthMeters
+        }
+    }
+
     private fun runTestInversion() {
-        statusText.text = "Test verisi uretiliyor ve SIRT hesaplaniyor..."
+        simulateDepthDetectionForTest()
+        statusText.text = "Test verisi uretiliyor ve SIRT hesaplaniyor... (tespit edilen derinlik: %.2f m)".format(detectedDepthMeters)
 
         val stakePositions = StakeCoordinates.positions
 
