@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import com.tomograph.app.tomography.VoxelGrid
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
@@ -29,10 +30,24 @@ class Tomography3DView(context: Context) : View(context) {
     private var selectedInfo: String? = null
     var onVoxelTapped: ((String) -> Unit)? = null
 
+    /** Her yeni izgara geldiginde, en belirgin anomalilerin ozet metni bu callback'e gelir. */
+    var onAnomaliesUpdated: ((String) -> Unit)? = null
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private data class PointItem(val gx: Float, val gy: Float, val gz: Float, val diff: Float)
     private var cachedPoints: List<PointItem> = emptyList()
+
+    /**
+     * Komsu-bazli anomali skoru: bir vokselin, SADECE kendi yakin komsularina
+     * (26 komsu) gore ne kadar farkli oldugunu olcer - genel ortalamadan
+     * degil. Bu, kucuk/lokal bir nesneyi (sikke gibi), onu cevreleyen genis
+     * ve farkli yogunluktaki bir zemin icinde bile one cikarabilir; global
+     * ortalamaya gore kiyaslama boyle durumlarda nesneyi "ortalamaya yakin"
+     * gosterip kacirabilirdi.
+     */
+    private data class AnomalyPoint(val gx: Float, val gy: Float, val gz: Float, val score: Float, val depthMeters: Double)
+    private var topAnomalies: List<AnomalyPoint> = emptyList()
 
     private var verticalExaggeration = 1.0f
 
@@ -61,6 +76,7 @@ class Tomography3DView(context: Context) : View(context) {
             (horizontalDim / verticalDim).coerceAtLeast(0.33f)
         } else 1.0f
         rebuildPointCache(newGrid)
+        computeTopAnomalies(newGrid)
         invalidate()
     }
 
@@ -84,6 +100,16 @@ class Tomography3DView(context: Context) : View(context) {
     fun getDepthSliceMeters(): Double {
         val g = grid ?: return 0.0
         return depthSliceFraction * g.nz * g.voxelSizeMeters
+    }
+
+    /**
+     * iz=0, izgaranin EN DERIN dilimidir (VoxelGrid.originZ = -toplamDerinlik
+     * olarak kuruluyor), iz=nz-1 ise yuzeye en yakin dilimdir. Yuzeyden
+     * itibaren GERCEK derinlik = toplamDerinlik - (iz+0.5)*voxelSize.
+     */
+    private fun trueDepthMeters(g: VoxelGrid, iz: Int): Double {
+        val totalDepth = g.nz * g.voxelSizeMeters
+        return totalDepth - (iz + 0.5) * g.voxelSizeMeters
     }
 
     private fun rebuildPointCache(g: VoxelGrid) {
@@ -111,6 +137,53 @@ class Tomography3DView(context: Context) : View(context) {
             }
         }
         cachedPoints = list
+    }
+
+    /** Tum izgarayi tarayip, her vokseli SADECE komsularina gore puanlar, en belirgin 6 taneyi secer. */
+    private fun computeTopAnomalies(g: VoxelGrid) {
+        val scored = ArrayList<AnomalyPoint>()
+        for (iz in 0 until g.nz) {
+            for (iy in 0 until g.ny) {
+                for (ix in 0 until g.nx) {
+                    var neighborSum = 0.0
+                    var neighborCount = 0
+                    for (dz in -1..1) for (dy in -1..1) for (dx in -1..1) {
+                        if (dx == 0 && dy == 0 && dz == 0) continue
+                        val nx2 = ix + dx; val ny2 = iy + dy; val nz2 = iz + dz
+                        if (g.inBounds(nx2, ny2, nz2)) {
+                            neighborSum += g.velocities[g.index(nx2, ny2, nz2)]
+                            neighborCount++
+                        }
+                    }
+                    if (neighborCount == 0) continue
+                    val localAvg = neighborSum / neighborCount
+                    if (localAvg <= 0.0) continue
+
+                    val v = g.velocities[g.index(ix, iy, iz)]
+                    val score = ((v - localAvg) / localAvg).toFloat()
+                    if (abs(score) < 0.03f) continue // gurultu seviyesinde, anomali sayma
+
+                    scored.add(
+                        AnomalyPoint(
+                            ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f,
+                            score, trueDepthMeters(g, iz)
+                        )
+                    )
+                }
+            }
+        }
+
+        topAnomalies = scored.sortedByDescending { abs(it.score) }.take(6)
+
+        val summary = if (topAnomalies.isEmpty()) {
+            "Komsularindan belirgin sekilde farkli bir nokta bulunamadi."
+        } else {
+            topAnomalies.mapIndexed { i, a ->
+                val tip = if (a.score < 0) "dusuk yogunluk (bosluk/nesne ihtimali)" else "yuksek yogunluk (yogun/sert)"
+                "#%d  derinlik %.2f m, komsularina gore sapma %+.0f%%  -  %s".format(i + 1, a.depthMeters, a.score * 100, tip)
+            }.joinToString("\n")
+        }
+        onAnomaliesUpdated?.invoke(summary)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -186,7 +259,11 @@ class Tomography3DView(context: Context) : View(context) {
         }
 
         if (closest != null && closestDist < 1200f) {
-            val depthMeters = (closest.gz + g.nz / 2f) * g.voxelSizeMeters
+            // DUZELTME: eskiden (closest.gz + nz/2f)*voxelSize kullaniliyordu,
+            // bu iz=0'i (en derin dilim) yanlislikla "0 metre" (yuzey) olarak
+            // etiketliyordu - yon tersti. trueDepthMeters ile duzeltildi.
+            val iz = (closest!!.gz + g.nz / 2f).toInt()
+            val depthMeters = trueDepthMeters(g, iz)
             val v = avg * (1 + closest.diff)
             val diffPct = closest.diff * 100
             val tip = if (closest.diff < 0) "dusuk yogunluk (bosluk ihtimali)" else "yuksek yogunluk (yogun/sert)"
@@ -244,9 +321,27 @@ class Tomography3DView(context: Context) : View(context) {
             canvas.drawCircle(screenX, screenY, radius, paint)
         }
 
+        // En belirgin anomalileri (komsu-bazli) sari halka + numara ile vurgula.
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3.5f
+        paint.textSize = 24f
+        for ((i, a) in topAnomalies.withIndex()) {
+            if (depthSliceEnabled) {
+                val depthFrac = (a.gz + g.nz / 2f) / g.nz
+                if (Math.abs(depthFrac - depthSliceFraction) > 0.08f) continue
+            }
+            val (sx, sy) = project(a.gx, a.gy, a.gz, scale, centerX, centerY)
+            paint.color = Color.YELLOW
+            canvas.drawCircle(sx, sy, 22f, paint)
+            paint.style = Paint.Style.FILL
+            canvas.drawText((i + 1).toString(), sx + 26f, sy + 8f, paint)
+            paint.style = Paint.Style.STROKE
+        }
+        paint.style = Paint.Style.FILL
+
         paint.color = Color.LTGRAY
         paint.textSize = 22f
-        canvas.drawText("Mavi = dusuk yogunluk | Turuncu/Kirmizi = yuksek yogunluk", 20f, height - 55f, paint)
+        canvas.drawText("Mavi = dusuk yogunluk | Turuncu/Kirmizi = yuksek yogunluk | Sari halka = komsularindan belirgin sapma", 20f, height - 55f, paint)
 
         if (verticalExaggeration < 0.99f) {
             paint.color = Color.rgb(200, 180, 100)
