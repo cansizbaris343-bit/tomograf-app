@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import com.tomograph.app.tomography.StakeCoordinates
 import com.tomograph.app.tomography.VoxelGrid
 import kotlin.math.abs
 import kotlin.math.cos
@@ -304,6 +305,7 @@ class Tomography3DView(context: Context) : View(context) {
         updateTrig()
 
         drawWireframeCube(canvas, g, scale, centerX, centerY)
+        drawStakeMarkers(canvas, g, scale, centerX, centerY)
 
         for (p in cachedPoints) {
             if (depthSliceEnabled) {
@@ -361,6 +363,46 @@ class Tomography3DView(context: Context) : View(context) {
             it.split("\n").forEachIndexed { i, line ->
                 canvas.drawText(line, 20f, 40f + i * 30f, paint)
             }
+        }
+    }
+
+    /**
+     * Izgara (voksel kutusu) her zaman dikdortgen/kup seklinde kalir - bu
+     * normaldir, duzenli bir 3D izgaranin matematiksel yapisi budur. Ama
+     * GERCEK kazik konumlari (altigen duzeni) bu kutunun UZERINE, StakeCoordinates'tan
+     * okunarak isaretlenir - VE aralarina cizgi cekilerek altigen seklin
+     * KENDISI cizilir, boylece altigen yerlesim goze acikca gorunur.
+     * Renk bilerek parlak magenta secildi - cetvel noktalarinin (teal) ve
+     * veri noktalarinin (mavi/turuncu) hicbiriyle karismasin diye.
+     */
+    private fun drawStakeMarkers(canvas: Canvas, g: VoxelGrid, scale: Float, centerX: Float, centerY: Float) {
+        val screenPoints = StakeCoordinates.positions.map { pos ->
+            val ix = (pos[0] - g.originX) / g.voxelSizeMeters
+            val iy = (pos[1] - g.originY) / g.voxelSizeMeters
+            val iz = (pos[2] - g.originZ) / g.voxelSizeMeters
+            val gx = ix.toFloat() - g.nx / 2f
+            val gy = iy.toFloat() - g.ny / 2f
+            val gz = iz.toFloat() - g.nz / 2f
+            project(gx, gy, gz, scale, centerX, centerY)
+        }
+
+        // Altigeni OLUSTURAN cizgiler: her kazigi bir sonrakine bagla (son->ilk dahil).
+        paint.color = Color.rgb(255, 0, 230)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 4f
+        for (i in screenPoints.indices) {
+            val a = screenPoints[i]
+            val b = screenPoints[(i + 1) % screenPoints.size]
+            canvas.drawLine(a.first, a.second, b.first, b.second, paint)
+        }
+
+        paint.style = Paint.Style.FILL
+        paint.textSize = 28f
+        for ((i, sp) in screenPoints.withIndex()) {
+            paint.color = Color.rgb(255, 0, 230)
+            canvas.drawCircle(sp.first, sp.second, 14f, paint)
+            paint.color = Color.WHITE
+            canvas.drawText("K" + (i + 1), sp.first + 16f, sp.second - 12f, paint)
         }
     }
 
