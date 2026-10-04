@@ -17,15 +17,29 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.tomograph.app.R
 import com.tomograph.app.audio.AudioChirpTest
+import com.tomograph.app.dsp.ArrivalTimePicker
+import com.tomograph.app.dsp.BandpassFilter
+import com.tomograph.app.dsp.ChirpSignal
 import com.tomograph.app.network.DaqUdpClient
 import com.tomograph.app.network.SampleFrame
 import com.tomograph.app.tomography.SirtInversion
+import com.tomograph.app.tomography.SoilProfile
 import com.tomograph.app.tomography.StakeCoordinates
 import com.tomograph.app.tomography.VoxelGrid
 import com.tomograph.app.viewer.Tomography3DView
 import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
+
+    // =========================================================================
+    // DONANIM AYARLARI - BUNLAR PLACEHOLDER'DIR. Gercek DAQ donanimi/firmware
+    // hazir olunca, asagidaki iki degeri donanimin GERCEK degerleriyle
+    // degistirmeden canli veri isleme YANLIS calisir (yanlis derinlik/zaman
+    // hesaplar). Datasheet veya firmware kaynagindan teyit edilmeli.
+    // =========================================================================
+    private val DAQ_SAMPLE_RATE_HZ = 20000.0   // TODO: gercek DAQ ornekleme hizi
+    private val SHOT_DURATION_SEC = 0.02       // TODO: gercek atis/chirp suresi
+    private val STACK_COUNT = 32               // kac atis ortalanip tek deger uretilecek
 
     private lateinit var statusText: TextView
     private lateinit var infoText: TextView
@@ -36,6 +50,18 @@ class MainActivity : AppCompatActivity() {
     private var detectedDepthMeters = 1.5
 
     private val micPermissionRequestCode = 501
+
+    // --- Canli veri biriktirme durumu ---
+    // key: "tx-shot" -> her alici kanal icin biriken ham ornekler
+    private val pendingShots = HashMap<String, Array<MutableList<Int>>>()
+    // key: "tx-rx" -> o cift icin simdiye kadar olculen gecikmeler (saniye)
+    private val pairDelays = HashMap<String, MutableList<Double>>()
+    // key: "tx-rx" -> zaten SIRT'e eklenmis mi (tekrar eklenmesin diye)
+    private val completedPairs = HashSet<String>()
+    private val liveRays = mutableListOf<SirtInversion.RayPath>()
+    private var referenceChirp: DoubleArray = DoubleArray(0)
+    private var samplesPerShot = 0
+    private var framesSinceLastRefresh = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,7 +89,12 @@ class MainActivity : AppCompatActivity() {
 
         startButton.setOnClickListener { startAcquisition() }
         stopButton.setOnClickListener { stopAcquisition() }
-        processButton.setOnClickListener { statusText.text = "Gercek veri icin donanim baglantisi gerekiyor." }
+
+        // processButton artik canli olcum durumunu gosteriyor (tek tiklama),
+        // uzun basinca toprak tipini degistiriyor (kuru -> nemli -> dogun).
+        processButton.setOnClickListener { showLiveStatus() }
+        processButton.setOnLongClickListener { cycleSoilType(); true }
+
         testButton.setOnClickListener { runTestInversion() }
         micTestButton.setOnClickListener { runMicTest() }
         stakeCoordButton.setOnClickListener { showStakeCoordDialog(0) }
@@ -89,6 +120,25 @@ class MainActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        statusText.text = "Hazir. " + SoilProfile.summary()
+    }
+
+    private fun cycleSoilType() {
+        val next = when (SoilProfile.currentType) {
+            SoilProfile.SoilType.KURU -> SoilProfile.SoilType.NEMLI
+            SoilProfile.SoilType.NEMLI -> SoilProfile.SoilType.DOYGUN
+            else -> SoilProfile.SoilType.KURU
+        }
+        SoilProfile.selectPreset(next)
+        statusText.text = "Toprak tipi degisti: " + SoilProfile.summary()
+    }
+
+    private fun showLiveStatus() {
+        val pairTotal = StakeCoordinates.STAKE_COUNT * (StakeCoordinates.STAKE_COUNT - 1)
+        infoText.text = "Olculen cift: " + completedPairs.size + " / " + pairTotal +
+            "\nBekleyen atis arabellekleri: " + pendingShots.size +
+            "\n" + SoilProfile.summary()
     }
 
     private fun showStakeCoordDialog(stakeIndex: Int) {
@@ -104,12 +154,12 @@ class MainActivity : AppCompatActivity() {
         val current = StakeCoordinates.positions[stakeIndex]
 
         val xInput = EditText(this)
-        xInput.hint = "X metre (-3.5 ile +3.5 arasi, 7m alan)"
+        xInput.hint = "X metre (altigen merkezine gore)"
         xInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
         xInput.setText(current[0].toString())
 
         val yInput = EditText(this)
-        yInput.hint = "Y metre (-3.5 ile +3.5 arasi, 7m alan)"
+        yInput.hint = "Y metre (altigen merkezine gore)"
         yInput.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
         yInput.setText(current[1].toString())
 
@@ -119,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         zInput.setText(current[2].toString())
 
         val infoLabel = TextView(this)
-        infoLabel.text = "Kazik " + (stakeIndex + 1) + " / 4 - UCUN koordinatini girin"
+        infoLabel.text = "Kazik " + (stakeIndex + 1) + " / " + StakeCoordinates.STAKE_COUNT + " - UCUN koordinatini girin"
         infoLabel.gravity = Gravity.CENTER
         infoLabel.setPadding(0, 0, 0, 24)
 
@@ -164,7 +214,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMicTest() {
-        statusText.text = "4000-7777 Hz chirp sinyali hazirlaniyor..."
+        statusText.text = "Chirp sinyali hazirlaniyor (" + SoilProfile.summary() + ")..."
         AudioChirpTest.runTest { result ->
             runOnUiThread {
                 statusText.text = result.message
@@ -172,22 +222,145 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // =========================================================================
+    // CANLI VERI TOPLAMA
+    // =========================================================================
+
     private fun startAcquisition() {
+        // Yeni bir olcum oturumu basliyor: onceki birikmis veriyi temizle,
+        // mevcut toprak profiline gore referans chirp'i ve izgarayi hazirla.
+        pendingShots.clear()
+        pairDelays.clear()
+        completedPairs.clear()
+        liveRays.clear()
+        framesSinceLastRefresh = 0
+
+        val lowHz = SoilProfile.current.recommendedLowHz
+        val highHz = SoilProfile.current.recommendedHighHz
+        referenceChirp = ChirpSignal.generate(lowHz, highHz, SHOT_DURATION_SEC, DAQ_SAMPLE_RATE_HZ)
+        samplesPerShot = (SHOT_DURATION_SEC * DAQ_SAMPLE_RATE_HZ).toInt().coerceAtLeast(8)
+
         daqClient = DaqUdpClient(
             onFrame = { frame -> onFrameReceived(frame) },
             onError = { err -> runOnUiThread { statusText.text = "Baglanti hatasi: " + err.message } }
         )
         daqClient?.start()
-        statusText.text = "Veri toplaniyor..."
+        statusText.text = "Veri toplaniyor... (" + SoilProfile.summary() + ")"
     }
 
+    /**
+     * Her gelen UDP frame'i, ait oldugu (tx, shot) atisinin arabellegine ekler.
+     * Bir atisin tum ornekleri toplaninca, 5 alici kanalin her biri icin
+     * darbe sikistirma + varis zamani tespiti yapilir, sonuc o (tx, rx)
+     * ciftinin gecikme listesine eklenir. Yeterli atis (STACK_COUNT)
+     * birikince ortalama alinir ve SIRT'e yeni bir ray-path olarak girer.
+     */
     private fun onFrameReceived(frame: SampleFrame) {
+        if (referenceChirp.isEmpty()) return // startAcquisition henuz cagrilmadi
+
+        val key = frame.txIndex.toString() + "-" + frame.shotIndex.toString()
+        val buffers = pendingShots.getOrPut(key) { Array(5) { mutableListOf() } }
+
+        for (ch in 0 until 5) {
+            buffers[ch].add(frame.channels[ch])
+        }
+
+        if (buffers[0].size < samplesPerShot) return // bu atis henuz tamamlanmadi
+
+        // Atis tamamlandi: her alici kanal icin isle, arabellegi sil.
+        pendingShots.remove(key)
+        processCompletedShot(frame.txIndex, buffers)
+
+        framesSinceLastRefresh++
+        if (framesSinceLastRefresh >= 5) {
+            framesSinceLastRefresh = 0
+            runOnUiThread { showLiveStatus() }
+        }
+    }
+
+    /** 5 alici kazigin, txIndex disindaki gercek kazik indekslerine sirali eslemesi. */
+    private fun receiverStakeIndices(txIndex: Int): List<Int> =
+        (0 until StakeCoordinates.STAKE_COUNT).filter { it != txIndex }
+
+    private fun processCompletedShot(txIndex: Int, buffers: Array<MutableList<Int>>) {
+        val rxIndices = receiverStakeIndices(txIndex)
+        val filter = BandpassFilter(DAQ_SAMPLE_RATE_HZ, SoilProfile.current.recommendedLowHz, SoilProfile.current.recommendedHighHz)
+
+        for (ch in 0 until 5) {
+            val rxStake = rxIndices.getOrNull(ch) ?: continue
+            val raw = DoubleArray(buffers[ch].size) { buffers[ch][it].toDouble() }
+            val filtered = filter.processBuffer(raw)
+            val arrival = ArrivalTimePicker.pick(referenceChirp, filtered, DAQ_SAMPLE_RATE_HZ)
+
+            if (arrival.confidence < 1.0) continue // guvenilmez olcum, atla
+
+            val pairKey = txIndex.toString() + "-" + rxStake.toString()
+            if (pairKey in completedPairs) continue
+
+            val list = pairDelays.getOrPut(pairKey) { mutableListOf() }
+            list.add(arrival.delaySeconds)
+
+            if (list.size >= STACK_COUNT) {
+                // STACK_COUNT atis birikti - ortalama (medyan, aykiri degerlere
+                // karsi ortalamadan daha dayanikli) al, SIRT ray listesine ekle.
+                val sorted = list.sorted()
+                val median = sorted[sorted.size / 2]
+                val delaySeconds = median.coerceAtLeast(0.0)
+
+                liveRays.add(
+                    SirtInversion.RayPath(
+                        sourceIdx = txIndex,
+                        receiverIdx = rxStake,
+                        sourcePos = StakeCoordinates.positions[txIndex],
+                        receiverPos = StakeCoordinates.positions[rxStake],
+                        measuredTravelTimeSec = delaySeconds
+                    )
+                )
+                completedPairs.add(pairKey)
+                pairDelays.remove(pairKey)
+
+                runOnUiThread { refreshLiveInversion() }
+            }
+        }
+    }
+
+    /** Su ana kadar tamamlanan ciftlerle SIRT'i yeniden calistirip gorunumu gunceller. */
+    private fun refreshLiveInversion() {
+        if (liveRays.isEmpty()) return
+
+        val voxelSize = 0.20
+        val widthMeters = StakeCoordinates.horizontalSpanMeters()
+        val nx = (widthMeters / voxelSize).toInt().coerceAtLeast(4)
+        val ny = nx
+        val depthMeters = detectedDepthMeters.coerceAtLeast(0.2)
+        val nz = (depthMeters / voxelSize).toInt().coerceAtLeast(2)
+
+        val grid = VoxelGrid(
+            nx = nx, ny = ny, nz = nz,
+            originX = -widthMeters / 2.0,
+            originY = -widthMeters / 2.0,
+            originZ = -depthMeters,
+            voxelSizeMeters = voxelSize,
+            initialVelocity = SoilProfile.current.soundSpeedMs
+        )
+
+        val inversion = SirtInversion(grid, iterations = 18)
+        val result = inversion.invert(liveRays)
+
+        tomographyView.updateGrid(result)
+
+        val pairTotal = StakeCoordinates.STAKE_COUNT * (StakeCoordinates.STAKE_COUNT - 1)
+        statusText.text = "Canli tomografi guncellendi: " + completedPairs.size + " / " + pairTotal + " cift"
     }
 
     private fun stopAcquisition() {
         daqClient?.stop()
-        statusText.text = "Kayit durduruldu."
+        statusText.text = "Kayit durduruldu. Toplam " + completedPairs.size + " cift olculdu."
     }
+
+    // =========================================================================
+    // SENTETIK TEST (donanim olmadan algoritmayi dogrulamak icin - degismedi)
+    // =========================================================================
 
     private fun runTestInversion() {
         statusText.text = "Test verisi uretiliyor ve SIRT hesaplaniyor..."
@@ -199,7 +372,7 @@ class MainActivity : AppCompatActivity() {
             for (rcv in stakePositions.indices) {
                 if (src == rcv) continue
                 val distance = distance3D(stakePositions[src], stakePositions[rcv])
-                val baseVelocity = 1500.0
+                val baseVelocity = SoilProfile.current.soundSpeedMs
                 val simulatedTime = distance / baseVelocity * (0.9 + Random.nextDouble() * 0.2)
                 rays.add(
                     SirtInversion.RayPath(
@@ -215,7 +388,7 @@ class MainActivity : AppCompatActivity() {
 
         val voxelSize = 0.20
 
-        val widthMeters = StakeCoordinates.MAX_HORIZONTAL_SPAN_METERS
+        val widthMeters = StakeCoordinates.horizontalSpanMeters()
         val nx = (widthMeters / voxelSize).toInt().coerceAtLeast(4)
         val ny = nx
 
@@ -227,7 +400,8 @@ class MainActivity : AppCompatActivity() {
             originX = -widthMeters / 2.0,
             originY = -widthMeters / 2.0,
             originZ = -depthMeters,
-            voxelSizeMeters = voxelSize
+            voxelSizeMeters = voxelSize,
+            initialVelocity = SoilProfile.current.soundSpeedMs
         )
 
         // Anomali kontrasti guclendirildi (900->600) ve yumusatma iterasyonu
@@ -253,8 +427,8 @@ class MainActivity : AppCompatActivity() {
 
         tomographyView.updateGrid(result)
         statusText.text = "Test tomografisi hazir, " + rays.size + " ray-path, simule veri."
-        infoText.text = "Genislik: " + widthMeters + "m x " + widthMeters + "m (sabit kazik alani). " +
-            "Derinlik: " + depthMeters + "m (otomatik tespit/varsayilan)."
+        infoText.text = "Genislik: " + widthMeters + "m x " + widthMeters + "m (altigen cap). " +
+            "Derinlik: " + depthMeters + "m (otomatik tespit/varsayilan).\n" + SoilProfile.summary()
     }
 
     private fun distance3D(a: DoubleArray, b: DoubleArray): Double {
