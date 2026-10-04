@@ -87,6 +87,10 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { infoText.text = info }
         }
 
+        tomographyView.onAnomaliesUpdated = { summary ->
+            runOnUiThread { infoText.text = summary }
+        }
+
         startButton.setOnClickListener { startAcquisition() }
         stopButton.setOnClickListener { stopAcquisition() }
 
