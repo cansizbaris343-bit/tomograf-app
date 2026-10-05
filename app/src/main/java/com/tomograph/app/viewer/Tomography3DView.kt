@@ -36,8 +36,13 @@ class Tomography3DView(context: Context) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private data class PointItem(val gx: Float, val gy: Float, val gz: Float, val diff: Float)
+    // hitCount: bu vokselden kac bagimsiz ray gectigi - dusukse (0-1) sonuc
+    // guvenilmez (sadece komsu-yumusatmadan geliyor), cizimde soluklastirilir.
+    private data class PointItem(val gx: Float, val gy: Float, val gz: Float, val diff: Float, val hitCount: Int)
     private var cachedPoints: List<PointItem> = emptyList()
+
+    /** En az bu kadar ray gecmeyen vokseller "veri yok, sadece tahmin" sayilir. */
+    private val MIN_RELIABLE_HITS = 2
 
     /**
      * Komsu-bazli anomali skoru: bir vokselin, SADECE kendi yakin komsularina
@@ -47,7 +52,10 @@ class Tomography3DView(context: Context) : View(context) {
      * ortalamaya gore kiyaslama boyle durumlarda nesneyi "ortalamaya yakin"
      * gosterip kacirabilirdi.
      */
-    private data class AnomalyPoint(val gx: Float, val gy: Float, val gz: Float, val score: Float, val depthMeters: Double)
+    private data class AnomalyPoint(
+        val gx: Float, val gy: Float, val gz: Float, val score: Float, val depthMeters: Double,
+        val conductivityHint: String
+    )
     private var topAnomalies: List<AnomalyPoint> = emptyList()
 
     private var verticalExaggeration = 1.0f
@@ -130,10 +138,11 @@ class Tomography3DView(context: Context) : View(context) {
         for (iz in 0 until g.nz step step) {
             for (iy in 0 until g.ny step step) {
                 for (ix in 0 until g.nx step step) {
-                    val v = g.velocities[g.index(ix, iy, iz)]
+                    val idx = g.index(ix, iy, iz)
+                    val v = g.velocities[idx]
                     val diff = ((v - avg) / avg).toFloat()
                     if (Math.abs(diff) < 0.02f) continue
-                    list.add(PointItem(ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f, diff))
+                    list.add(PointItem(ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f, diff, g.rayHitCount[idx]))
                 }
             }
         }
@@ -160,14 +169,34 @@ class Tomography3DView(context: Context) : View(context) {
                     val localAvg = neighborSum / neighborCount
                     if (localAvg <= 0.0) continue
 
-                    val v = g.velocities[g.index(ix, iy, iz)]
+                    val idx = g.index(ix, iy, iz)
+
+                    // GUVEN FILTRESI: az ray gecen vokseller (sadece komsu
+                    // yumusatmadan uretilmis, gercek olcum degil) anomali
+                    // adayi sayilmaz - bu, yanlis pozitiflerin en buyuk
+                    // kaynaklarindan biridir.
+                    if (g.rayHitCount[idx] < MIN_RELIABLE_HITS) continue
+
+                    val v = g.velocities[idx]
                     val score = ((v - localAvg) / localAvg).toFloat()
                     if (abs(score) < 0.03f) continue // gurultu seviyesinde, anomali sayma
+
+                    // ILETKENLIK IPUCU: donanimda EM/iletkenlik sensoru varsa
+                    // (grid.conductivity dolu), yuksek akustik sapma +
+                    // yuksek iletkenlik birlikte "metal ihtimali yuksek" der.
+                    // Sensor yoksa, bunu acikca "ayirt edilemiyor" diye belirtir -
+                    // akustik tek basina metal/tas/bosluk ayrimi yapamaz.
+                    val cond = g.conductivity?.get(idx)
+                    val hint = when {
+                        cond == null -> "yogunluk farki (METAL, TAS veya BOSLUK olabilir - iletkenlik verisi yok)"
+                        cond > 0.5 -> "yuksek iletkenlik + yogunluk farki - METAL IHTIMALI YUKSEK"
+                        else -> "dusuk iletkenlik - muhtemelen metal DEGIL (tas/bosluk/kok)"
+                    }
 
                     scored.add(
                         AnomalyPoint(
                             ix - g.nx / 2f, iy - g.ny / 2f, iz - g.nz / 2f,
-                            score, trueDepthMeters(g, iz)
+                            score, trueDepthMeters(g, iz), hint
                         )
                     )
                 }
@@ -177,11 +206,10 @@ class Tomography3DView(context: Context) : View(context) {
         topAnomalies = scored.sortedByDescending { abs(it.score) }.take(6)
 
         val summary = if (topAnomalies.isEmpty()) {
-            "Komsularindan belirgin sekilde farkli bir nokta bulunamadi."
+            "Komsularindan belirgin sekilde farkli, yeterince ray ile dogrulanmis bir nokta bulunamadi."
         } else {
             topAnomalies.mapIndexed { i, a ->
-                val tip = if (a.score < 0) "dusuk yogunluk (bosluk/nesne ihtimali)" else "yuksek yogunluk (yogun/sert)"
-                "#%d  derinlik %.2f m, komsularina gore sapma %+.0f%%  -  %s".format(i + 1, a.depthMeters, a.score * 100, tip)
+                "#%d  derinlik %.2f m, komsularina gore sapma %+.0f%%  -  %s".format(i + 1, a.depthMeters, a.score * 100, a.conductivityHint)
             }.joinToString("\n")
         }
         onAnomaliesUpdated?.invoke(summary)
@@ -268,7 +296,9 @@ class Tomography3DView(context: Context) : View(context) {
             val v = avg * (1 + closest.diff)
             val diffPct = closest.diff * 100
             val tip = if (closest.diff < 0) "dusuk yogunluk (bosluk ihtimali)" else "yuksek yogunluk (yogun/sert)"
-            selectedInfo = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nDerinlik: %.2f m".format(v, diffPct, tip, depthMeters)
+            val guven = if (closest.hitCount >= MIN_RELIABLE_HITS) "%d olcumle dogrulandi".format(closest.hitCount)
+                        else "DUSUK GUVEN - sadece tahmin (%d olcum)".format(closest.hitCount)
+            selectedInfo = "Hiz: %.0f m/s (%.0f%% sapma) - %s\nDerinlik: %.2f m\nGuven: %s".format(v, diffPct, tip, depthMeters, guven)
             onVoxelTapped?.invoke(selectedInfo!!)
             invalidate()
         }
@@ -314,14 +344,22 @@ class Tomography3DView(context: Context) : View(context) {
             }
             val (screenX, screenY) = project(p.gx, p.gy, p.gz, scale, centerX, centerY)
 
-            paint.color = if (p.diff < 0) {
+            val baseColor = if (p.diff < 0) {
                 Color.rgb((80 + p.diff * -300).toInt().coerceIn(0, 255), 120, 255)
             } else {
                 Color.rgb(255, (200 - p.diff * 300).toInt().coerceIn(0, 200), 60)
             }
+            // GUVEN -> SEFFAFLIK: az ray gecen (guvenilmez) vokseller soluk
+            // cizilir, boylece gercek olcumle dogrulanmis bolgeler goze daha
+            // belirgin carpar, "yumusatmadan ibaret" alanlar dikkat cekmez.
+            val alpha = if (p.hitCount >= MIN_RELIABLE_HITS) 255
+                        else (90 + p.hitCount * 60).coerceIn(50, 255)
+            paint.color = Color.argb(alpha, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
+
             val radius = 5f + (Math.abs(p.diff) * 18f).coerceIn(2f, 16f)
             canvas.drawCircle(screenX, screenY, radius, paint)
         }
+        paint.alpha = 255
 
         // En belirgin anomalileri (komsu-bazli) sari halka + numara ile vurgula.
         paint.style = Paint.Style.STROKE
