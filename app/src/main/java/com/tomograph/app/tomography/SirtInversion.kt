@@ -21,6 +21,17 @@ class SirtInversion(
     fun invert(rays: List<RayPath>): VoxelGrid {
         val rayVoxelWeights = rays.map { computeRayVoxelIntersections(it) }
 
+        // ISIN YOGUNLUGU: her vokselden kac BAGIMSIZ ray gectigini say.
+        // Bu, inversion matematiginden bagimsiz, sadece geometrik bir
+        // kayittir - Tomography3DView bunu dusuk-guven bolgelerini
+        // soluklastirmak/elemek icin kullanir.
+        grid.rayHitCount.fill(0)
+        for (weights in rayVoxelWeights) {
+            for ((voxelIdx, pathLength) in weights) {
+                if (pathLength > 0.0) grid.rayHitCount[voxelIdx]++
+            }
+        }
+
         repeat(iterations) {
             val correction = DoubleArray(grid.velocities.size)
             val weightSum = DoubleArray(grid.velocities.size)
